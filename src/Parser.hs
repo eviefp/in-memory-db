@@ -6,28 +6,25 @@ module Parser
   )
 where
 
-import Data.Functor (void)
-import Data.Text (Text)
-import Data.Text qualified as T
+import Data.Functor (void, ($>))
 import Data.Void (Void)
-import Database (Key, Value (..), mkKey)
+import Database (Index (Index), Key, Value (..), mkKey)
+import Eval
 import Text.Megaparsec (Parsec, many, noneOf, parseError, (<|>))
 import Text.Megaparsec.Char (char, space, string)
 import Text.Megaparsec.Char.Lexer (decimal, signed)
-import Prelude (Monad ((>>=)), Monoid (mempty), maybe, pure, ($), (*>), (.), (<$>))
 
-type Parser = Parsec Void Text
-
-data Command
-  = Insert !Key !Value
-  | Get !Key
+type Parser = Parsec Void String
 
 parseCommand :: Parser Command
-parseCommand = parseInsert <|> parseGet
+parseCommand = parseExit <|> parseInsert <|> parseGet
   where
+    parseExit :: Parser Command
+    parseExit = string "exit" $> Exit
+
     parseInsert :: Parser Command
     parseInsert = do
-      _ <- string "insert "
+      void $ string "insert "
       key <- parseKey
       space
       value <- parseValue
@@ -35,15 +32,21 @@ parseCommand = parseInsert <|> parseGet
 
     parseGet :: Parser Command
     parseGet = do
-      _ <- string "get "
-      Get <$> parseKey
+      void $ string "get "
+      key <- parseKey
+      parseGetIndex key <|> pure (Get key)
+
+    parseGetIndex :: Key -> Parser Command
+    parseGetIndex key = do
+      space
+      GetIndex key . Index <$> decimal
 
 parseKey :: Parser Key
-parseKey =
-  many (noneOf ['"', ' ', '\n'])
-    >>= maybe (parseError mempty) pure
-      . mkKey
-      . T.pack
+parseKey = do
+  key <- many (noneOf ['"', ' ', '\n'])
+  case mkKey key of
+    Nothing -> parseError mempty
+    Just k -> pure k
 
 parseValue :: Parser Value
 parseValue = parseList <|> parseText <|> parseInt
@@ -68,15 +71,14 @@ parseValue = parseList <|> parseText <|> parseInt
       pure $ VIntList (first : rest)
 
     parseText :: Parser Value
-    parseText = do
-      VText <$> parseRawText
+    parseText = VText <$> parseRawText
 
-    parseRawText :: Parser Text
+    parseRawText :: Parser String
     parseRawText = do
       void $ char '"'
       t <- many (noneOf ['"'])
       void $ char '"'
-      pure $ T.pack t
+      pure t
 
     parseInt :: Parser Value
     parseInt = VInt <$> signed space decimal
