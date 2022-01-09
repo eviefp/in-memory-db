@@ -1,0 +1,7 @@
+cradle:
+  cabal:
+    - path: "src"
+      component: "lib:in-memory-db"
+
+    - path: "app/Main.hs"
+      component: "in-memory-db:exe:in-memory-db"
